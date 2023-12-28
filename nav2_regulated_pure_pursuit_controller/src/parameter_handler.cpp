@@ -13,28 +13,29 @@
 // limitations under the License.
 
 #include <algorithm>
-#include <string>
 #include <limits>
 #include <memory>
-#include <vector>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "nav2_regulated_pure_pursuit_controller/parameter_handler.hpp"
 
 namespace nav2_regulated_pure_pursuit_controller
 {
 
-  using nav2_util::declare_parameter_if_not_declared;
-  using rcl_interfaces::msg::ParameterType;
+using nav2_util::declare_parameter_if_not_declared; // 通过使用 using 声明，您可以在后续的代码中直接使用函数，而不需要每次都写出完整的命名空间路径。
+using rcl_interfaces::msg::ParameterType;
 
-  ParameterHandler::ParameterHandler(
-      rclcpp_lifecycle::LifecycleNode::SharedPtr node,
-      std::string &plugin_name, rclcpp::Logger &logger,
-      const double costmap_size_x)
-  {
+ParameterHandler::ParameterHandler(
+    rclcpp_lifecycle::LifecycleNode::SharedPtr node,
+    std::string &plugin_name, rclcpp::Logger &logger,
+    const double costmap_size_x)
+{
     plugin_name_ = plugin_name;
     logger_ = logger;
 
+    // 在给定的ROS 2节点中声明参数，但仅当该参数尚未被声明时
     declare_parameter_if_not_declared(
         node, plugin_name_ + ".desired_linear_vel", rclcpp::ParameterValue(0.5));
     declare_parameter_if_not_declared(
@@ -97,6 +98,7 @@ namespace nav2_regulated_pure_pursuit_controller
         node, plugin_name_ + ".use_collision_detection",
         rclcpp::ParameterValue(true));
 
+    // 作用是从给定的ROS 2节点中获取参数的值,并存储到变量中
     node->get_parameter(plugin_name_ + ".desired_linear_vel", params_.desired_linear_vel);
     params_.base_desired_linear_vel = params_.desired_linear_vel;
     node->get_parameter(plugin_name_ + ".lookahead_dist", params_.lookahead_dist);
@@ -118,9 +120,9 @@ namespace nav2_regulated_pure_pursuit_controller
         params_.approach_velocity_scaling_dist);
     if (params_.approach_velocity_scaling_dist > costmap_size_x / 2.0)
     {
-      RCLCPP_WARN(
-          logger_, "approach_velocity_scaling_dist is larger than forward costmap extent, "
-                   "leading to permanent slowdown");
+        RCLCPP_WARN(
+            logger_, "approach_velocity_scaling_dist is larger than forward costmap extent, "
+                     "leading to permanent slowdown");
     }
     node->get_parameter(
         plugin_name_ + ".max_allowed_time_to_collision_up_to_carrot",
@@ -158,10 +160,10 @@ namespace nav2_regulated_pure_pursuit_controller
         params_.max_robot_pose_search_dist);
     if (params_.max_robot_pose_search_dist < 0.0)
     {
-      RCLCPP_WARN(
-          logger_, "Max robot search distance is negative, setting to max to search"
-                   " every point on path for the closest value.");
-      params_.max_robot_pose_search_dist = std::numeric_limits<double>::max();
+        RCLCPP_WARN(
+            logger_, "Max robot search distance is negative, setting to max to search"
+                     " every point on path for the closest value.");
+        params_.max_robot_pose_search_dist = std::numeric_limits<double>::max();
     }
 
     node->get_parameter(
@@ -173,10 +175,10 @@ namespace nav2_regulated_pure_pursuit_controller
 
     if (params_.inflation_cost_scaling_factor <= 0.0)
     {
-      RCLCPP_WARN(
-          logger_, "The value inflation_cost_scaling_factor is incorrectly set, "
-                   "it should be >0. Disabling cost regulated linear velocity scaling.");
-      params_.use_cost_regulated_linear_velocity_scaling = false;
+        RCLCPP_WARN(
+            logger_, "The value inflation_cost_scaling_factor is incorrectly set, "
+                     "it should be >0. Disabling cost regulated linear velocity scaling.");
+        params_.use_cost_regulated_linear_velocity_scaling = false;
     }
 
     /** Possible to drive in reverse direction if and only if
@@ -184,154 +186,162 @@ namespace nav2_regulated_pure_pursuit_controller
 
     if (params_.use_rotate_to_heading && params_.allow_reversing)
     {
-      RCLCPP_WARN(
-          logger_, "Disabling reversing. Both use_rotate_to_heading and allow_reversing "
-                   "parameter cannot be set to true. By default setting use_rotate_to_heading true");
-      params_.allow_reversing = false;
+        RCLCPP_WARN(
+            logger_, "Disabling reversing. Both use_rotate_to_heading and allow_reversing "
+                     "parameter cannot be set to true. By default setting use_rotate_to_heading true");
+        params_.allow_reversing = false;
     }
 
+    // dyn_params_handler_ 是一个指向动态参数回调句柄的智能指针，它用于管理动态参数回调函数的注册和取消注册。
+    // node->add_on_set_parameters_callback(...) 调用了节点的函数来注册一个动态参数回调。该函数接受一个回调函数作为参数，以便在节点中的参数发生变化时触发此回调。
+    // dyn_params_handler_ 指向的智能指针将持有动态参数回调的注册信息，以便后续可以通过取消注册来移除该回调。这样，在节点中的参数发生变化时，注册的回调函数将被调用，从而执行相应的操作。
     dyn_params_handler_ = node->add_on_set_parameters_callback(
         std::bind(
             &ParameterHandler::dynamicParametersCallback,
             this, std::placeholders::_1));
-  }
+}
 
-  rcl_interfaces::msg::SetParametersResult
-  ParameterHandler::dynamicParametersCallback(
-      std::vector<rclcpp::Parameter> parameters)
-  {
+rcl_interfaces::msg::SetParametersResult
+ParameterHandler::dynamicParametersCallback(
+    std::vector<rclcpp::Parameter> parameters)
+{
     rcl_interfaces::msg::SetParametersResult result;
+    // 使用互斥锁保护参数的读写操作
     std::lock_guard<std::mutex> lock_reinit(mutex_);
 
     for (auto parameter : parameters)
     {
-      const auto &type = parameter.get_type();
-      const auto &name = parameter.get_name();
+        const auto &type = parameter.get_type();
+        const auto &name = parameter.get_name();
 
-      if (type == ParameterType::PARAMETER_DOUBLE)
-      {
-        if (name == plugin_name_ + ".inflation_cost_scaling_factor")
+        if (type == ParameterType::PARAMETER_DOUBLE)
         {
-          if (parameter.as_double() <= 0.0)
-          {
-            RCLCPP_WARN(
-                logger_, "The value inflation_cost_scaling_factor is incorrectly set, "
-                         "it should be >0. Ignoring parameter update.");
-            continue;
-          }
-          params_.inflation_cost_scaling_factor = parameter.as_double();
+            // 对 double 类型的参数进行处理
+            if (name == plugin_name_ + ".inflation_cost_scaling_factor")
+            {
+                // 对 inflation_cost_scaling_factor 参数进行处理
+                if (parameter.as_double() <= 0.0)
+                {
+                    // 如果参数值小于等于 0，发出警告并忽略参数更新
+                    RCLCPP_WARN(
+                        logger_, "The value inflation_cost_scaling_factor is incorrectly set, "
+                                 "it should be >0. Ignoring parameter update.");
+                    continue;
+                }
+                params_.inflation_cost_scaling_factor = parameter.as_double(); // as_double() 是 rclcpp::Parameter 类中的一个方法，用于将参数的值转换为 double 类型。
+            }
+            else if (name == plugin_name_ + ".desired_linear_vel")
+            {
+                params_.desired_linear_vel = parameter.as_double();
+                params_.base_desired_linear_vel = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".lookahead_dist")
+            {
+                params_.lookahead_dist = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".max_lookahead_dist")
+            {
+                params_.max_lookahead_dist = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".min_lookahead_dist")
+            {
+                params_.min_lookahead_dist = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".lookahead_time")
+            {
+                params_.lookahead_time = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".rotate_to_heading_angular_vel")
+            {
+                params_.rotate_to_heading_angular_vel = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".min_approach_linear_velocity")
+            {
+                params_.min_approach_linear_velocity = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".curvature_lookahead_dist")
+            {
+                params_.curvature_lookahead_dist = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".max_allowed_time_to_collision_up_to_carrot")
+            {
+                params_.max_allowed_time_to_collision_up_to_carrot = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".cost_scaling_dist")
+            {
+                params_.cost_scaling_dist = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".cost_scaling_gain")
+            {
+                params_.cost_scaling_gain = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".regulated_linear_scaling_min_radius")
+            {
+                params_.regulated_linear_scaling_min_radius = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".regulated_linear_scaling_min_speed")
+            {
+                params_.regulated_linear_scaling_min_speed = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".max_angular_accel")
+            {
+                params_.max_angular_accel = parameter.as_double();
+            }
+            else if (name == plugin_name_ + ".rotate_to_heading_min_angle")
+            {
+                params_.rotate_to_heading_min_angle = parameter.as_double();
+            }
         }
-        else if (name == plugin_name_ + ".desired_linear_vel")
+        else if (type == ParameterType::PARAMETER_BOOL)
         {
-          params_.desired_linear_vel = parameter.as_double();
-          params_.base_desired_linear_vel = parameter.as_double();
+            // 对 bool 类型的参数进行处理
+            if (name == plugin_name_ + ".use_velocity_scaled_lookahead_dist")
+            {
+                params_.use_velocity_scaled_lookahead_dist = parameter.as_bool();
+            }
+            else if (name == plugin_name_ + ".use_regulated_linear_velocity_scaling")
+            {
+                params_.use_regulated_linear_velocity_scaling = parameter.as_bool();
+            }
+            else if (name == plugin_name_ + ".use_fixed_curvature_lookahead")
+            {
+                params_.use_fixed_curvature_lookahead = parameter.as_bool();
+            }
+            else if (name == plugin_name_ + ".use_cost_regulated_linear_velocity_scaling")
+            {
+                params_.use_cost_regulated_linear_velocity_scaling = parameter.as_bool();
+            }
+            else if (name == plugin_name_ + ".use_collision_detection")
+            {
+                params_.use_collision_detection = parameter.as_bool();
+            }
+            else if (name == plugin_name_ + ".use_rotate_to_heading")
+            {
+                if (parameter.as_bool() && params_.allow_reversing)
+                {
+                    RCLCPP_WARN(
+                        logger_, "Both use_rotate_to_heading and allow_reversing "
+                                 "parameter cannot be set to true. Rejecting parameter update.");
+                    continue;
+                }
+                params_.use_rotate_to_heading = parameter.as_bool();
+            }
+            else if (name == plugin_name_ + ".allow_reversing")
+            {
+                if (params_.use_rotate_to_heading && parameter.as_bool())
+                {
+                    RCLCPP_WARN(
+                        logger_, "Both use_rotate_to_heading and allow_reversing "
+                                 "parameter cannot be set to true. Rejecting parameter update.");
+                    continue;
+                }
+                params_.allow_reversing = parameter.as_bool();
+            }
         }
-        else if (name == plugin_name_ + ".lookahead_dist")
-        {
-          params_.lookahead_dist = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".max_lookahead_dist")
-        {
-          params_.max_lookahead_dist = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".min_lookahead_dist")
-        {
-          params_.min_lookahead_dist = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".lookahead_time")
-        {
-          params_.lookahead_time = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".rotate_to_heading_angular_vel")
-        {
-          params_.rotate_to_heading_angular_vel = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".min_approach_linear_velocity")
-        {
-          params_.min_approach_linear_velocity = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".curvature_lookahead_dist")
-        {
-          params_.curvature_lookahead_dist = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".max_allowed_time_to_collision_up_to_carrot")
-        {
-          params_.max_allowed_time_to_collision_up_to_carrot = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".cost_scaling_dist")
-        {
-          params_.cost_scaling_dist = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".cost_scaling_gain")
-        {
-          params_.cost_scaling_gain = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".regulated_linear_scaling_min_radius")
-        {
-          params_.regulated_linear_scaling_min_radius = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".regulated_linear_scaling_min_speed")
-        {
-          params_.regulated_linear_scaling_min_speed = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".max_angular_accel")
-        {
-          params_.max_angular_accel = parameter.as_double();
-        }
-        else if (name == plugin_name_ + ".rotate_to_heading_min_angle")
-        {
-          params_.rotate_to_heading_min_angle = parameter.as_double();
-        }
-      }
-      else if (type == ParameterType::PARAMETER_BOOL)
-      {
-        if (name == plugin_name_ + ".use_velocity_scaled_lookahead_dist")
-        {
-          params_.use_velocity_scaled_lookahead_dist = parameter.as_bool();
-        }
-        else if (name == plugin_name_ + ".use_regulated_linear_velocity_scaling")
-        {
-          params_.use_regulated_linear_velocity_scaling = parameter.as_bool();
-        }
-        else if (name == plugin_name_ + ".use_fixed_curvature_lookahead")
-        {
-          params_.use_fixed_curvature_lookahead = parameter.as_bool();
-        }
-        else if (name == plugin_name_ + ".use_cost_regulated_linear_velocity_scaling")
-        {
-          params_.use_cost_regulated_linear_velocity_scaling = parameter.as_bool();
-        }
-        else if (name == plugin_name_ + ".use_collision_detection")
-        {
-          params_.use_collision_detection = parameter.as_bool();
-        }
-        else if (name == plugin_name_ + ".use_rotate_to_heading")
-        {
-          if (parameter.as_bool() && params_.allow_reversing)
-          {
-            RCLCPP_WARN(
-                logger_, "Both use_rotate_to_heading and allow_reversing "
-                         "parameter cannot be set to true. Rejecting parameter update.");
-            continue;
-          }
-          params_.use_rotate_to_heading = parameter.as_bool();
-        }
-        else if (name == plugin_name_ + ".allow_reversing")
-        {
-          if (params_.use_rotate_to_heading && parameter.as_bool())
-          {
-            RCLCPP_WARN(
-                logger_, "Both use_rotate_to_heading and allow_reversing "
-                         "parameter cannot be set to true. Rejecting parameter update.");
-            continue;
-          }
-          params_.allow_reversing = parameter.as_bool();
-        }
-      }
     }
 
     result.successful = true;
     return result;
-  }
+}
 
 } // namespace nav2_regulated_pure_pursuit_controller
